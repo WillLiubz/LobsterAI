@@ -2651,71 +2651,59 @@ if (!gotTheLock) {
     }
   });
 
+  // Debounce + serialization for im:config:set → syncOpenClawConfig.
+  // Rapid sequential config changes (e.g. toggling 4 platforms) are coalesced
+  // into a single gateway restart instead of N restarts.
+  // The running/pending flags prevent concurrent sync operations from racing:
+  // if a sync is in progress when new changes arrive, they are queued and
+  // a follow-up sync runs after the current one completes.
+  let imConfigSyncTimer: ReturnType<typeof setTimeout> | null = null;
+  let imConfigSyncRunning = false;
+  let imConfigSyncPending = false;
+  const IM_CONFIG_SYNC_DEBOUNCE_MS = 600;
+
+  const doImConfigSync = async () => {
+    imConfigSyncRunning = true;
+    try {
+      await syncOpenClawConfig({
+        reason: 'im-config-change',
+        restartGatewayIfRunning: true,
+      });
+    } catch (error) {
+      console.error('[IM] Debounced config sync failed:', error);
+    } finally {
+      imConfigSyncRunning = false;
+      if (imConfigSyncPending) {
+        imConfigSyncPending = false;
+        scheduleImConfigSync();
+      }
+    }
+  };
+
+  const scheduleImConfigSync = () => {
+    if (imConfigSyncRunning) {
+      // A sync is already in progress; mark pending so it re-runs after completion.
+      imConfigSyncPending = true;
+      return;
+    }
+    if (imConfigSyncTimer) clearTimeout(imConfigSyncTimer);
+    imConfigSyncTimer = setTimeout(() => {
+      imConfigSyncTimer = null;
+      void doImConfigSync();
+    }, IM_CONFIG_SYNC_DEBOUNCE_MS);
+  };
+
   ipcMain.handle('im:config:set', async (_event, config: Partial<IMGatewayConfig>) => {
     try {
       getIMGatewayManager().setConfig(config);
 
-      // Sync Telegram config to OpenClaw runtime if changed
-      if (config.telegram) {
-        const engineManager = getOpenClawEngineManager();
-        if (engineManager.getStatus().phase === 'running') {
-          await syncOpenClawConfig({
-            reason: 'telegram-openclaw-config-change',
-            restartGatewayIfRunning: true,
-          });
-        }
-      }
-
-      // Sync Discord config to OpenClaw runtime if changed
-      if (config.discord) {
-        const engineManager = getOpenClawEngineManager();
-        if (engineManager.getStatus().phase === 'running') {
-          await syncOpenClawConfig({
-            reason: 'discord-openclaw-config-change',
-            restartGatewayIfRunning: true,
-          });
-        }
-      }
-
-      // Re-sync OpenClaw config so dingtalk-connector picks up new credentials
-      if (config.dingtalk) {
-        const engineManager = getOpenClawEngineManager();
-        if (engineManager.getStatus().phase === 'running') {
-          await syncOpenClawConfig({
-            reason: 'dingtalk-openclaw-config-change',
-            restartGatewayIfRunning: true,
-          });
-        }
-      }
-      // Re-sync OpenClaw config so feishu-openclaw-plugin picks up new credentials
-      if (config.feishu) {
-        const engineManager = getOpenClawEngineManager();
-        if (engineManager.getStatus().phase === 'running') {
-          await syncOpenClawConfig({
-            reason: 'feishu-openclaw-config-change',
-            restartGatewayIfRunning: true,
-          });
-        }
-      }
-      // Re-sync OpenClaw config so qqbot plugin picks up new credentials
-      if (config.qq) {
-        const engineManager = getOpenClawEngineManager();
-        if (engineManager.getStatus().phase === 'running') {
-          await syncOpenClawConfig({
-            reason: 'im-qq-openclaw-config-change',
-            restartGatewayIfRunning: true,
-          });
-        }
-      }
-      // Re-sync OpenClaw config so wecom-openclaw-plugin picks up new credentials
-      if (config.wecom) {
-        const wecomEngineManager = getOpenClawEngineManager();
-        if (wecomEngineManager.getStatus().phase === 'running') {
-          await syncOpenClawConfig({
-            reason: 'im-wecom-config-change',
-            restartGatewayIfRunning: true,
-          });
-        }
+      // Sync OpenClaw config once for all platform changes (instead of per-platform).
+      // setConfig() already persists to DB synchronously, so syncOpenClawConfig just
+      // needs to regenerate openclaw.json and restart the gateway once.
+      const hasOpenClawChange = config.telegram || config.discord || config.dingtalk
+        || config.feishu || config.qq || config.wecom;
+      if (hasOpenClawChange && getOpenClawEngineManager().getStatus().phase === 'running') {
+        scheduleImConfigSync();
       }
       return { success: true };
     } catch (error) {

@@ -391,8 +391,9 @@ const IMSettings: React.FC = () => {
     setTogglingPlatform(platform);
 
     try {
-      // Telegram runs via OpenClaw; im:config:set handler already calls
+      // All OpenClaw platforms: im:config:set handler already calls
       // syncOpenClawConfig({ restartGatewayIfRunning: true }), so no startGateway/stopGateway needed.
+      // Only updateConfig + loadStatus is required.
       if (platform === 'telegram') {
         const newEnabled = !tgOpenClawConfig.enabled;
         dispatch(setTelegramOpenClawConfig({ enabled: newEnabled }));
@@ -402,8 +403,15 @@ const IMSettings: React.FC = () => {
         return;
       }
 
-      // Feishu runs via OpenClaw; im:config:set handler already calls
-      // syncOpenClawConfig({ restartGatewayIfRunning: true }), so no startGateway/stopGateway needed.
+      if (platform === 'dingtalk') {
+        const newEnabled = !dtOpenClawConfig.enabled;
+        dispatch(setDingTalkConfig({ enabled: newEnabled }));
+        if (newEnabled) dispatch(clearError());
+        await imService.updateConfig({ dingtalk: { ...dtOpenClawConfig, enabled: newEnabled } });
+        await imService.loadStatus();
+        return;
+      }
+
       if (platform === 'feishu') {
         const newEnabled = !fsOpenClawConfig.enabled;
         dispatch(setFeishuConfig({ enabled: newEnabled }));
@@ -413,8 +421,15 @@ const IMSettings: React.FC = () => {
         return;
       }
 
-      // QQ runs via OpenClaw; im:config:set handler already calls
-      // syncOpenClawConfig({ restartGatewayIfRunning: true }), so no startGateway/stopGateway needed.
+      if (platform === 'discord') {
+        const newEnabled = !dcOpenClawConfig.enabled;
+        dispatch(setDiscordConfig({ enabled: newEnabled }));
+        if (newEnabled) dispatch(clearError());
+        await imService.updateConfig({ discord: { ...dcOpenClawConfig, enabled: newEnabled } });
+        await imService.loadStatus();
+        return;
+      }
+
       if (platform === 'qq') {
         const newEnabled = !qqOpenClawConfig.enabled;
         dispatch(setQQConfig({ enabled: newEnabled }));
@@ -424,19 +439,16 @@ const IMSettings: React.FC = () => {
         return;
       }
 
-      // WeCom has a separate config path (OpenClaw mode)
-      // im:config:set handler already calls syncOpenClawConfig({ restartGatewayIfRunning: true })
-      // when wecom config changes, so we only need updateConfig — no startGateway/stopGateway.
       if (platform === 'wecom') {
         const newEnabled = !wecomOpenClawConfig.enabled;
         dispatch(setWecomConfig({ enabled: newEnabled }));
         if (newEnabled) dispatch(clearError());
         await imService.updateConfig({ wecom: { ...wecomOpenClawConfig, enabled: newEnabled } });
-        // Refresh status so the switch reflects the new connected state
         await imService.loadStatus();
         return;
       }
 
+      // Non-OpenClaw platforms (nim, xiaomifeng): use startGateway/stopGateway
       const isEnabled = config[platform].enabled;
       const newEnabled = !isEnabled;
 
