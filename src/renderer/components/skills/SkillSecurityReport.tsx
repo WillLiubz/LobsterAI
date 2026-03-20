@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  ShieldExclamationIcon,
+  ShieldCheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   XMarkIcon,
@@ -44,18 +44,12 @@ const DIMENSION_LABELS: Record<string, string> = {
   web_content: 'securityDimWebContent',
 };
 
-const RISK_COLORS: Record<string, { bg: string; text: string; border: string }> = {
-  low: { bg: 'bg-blue-500/10', text: 'text-blue-600 dark:text-blue-400', border: 'border-blue-500/20' },
-  medium: { bg: 'bg-yellow-500/10', text: 'text-yellow-600 dark:text-yellow-400', border: 'border-yellow-500/20' },
-  high: { bg: 'bg-orange-500/10', text: 'text-orange-600 dark:text-orange-400', border: 'border-orange-500/20' },
-  critical: { bg: 'bg-red-500/10', text: 'text-red-600 dark:text-red-400', border: 'border-red-500/20' },
-};
-
+// Severity dots shifted down one level to reduce user alarm
 const SEVERITY_DOTS: Record<string, string> = {
   info: 'bg-gray-400',
-  warning: 'bg-yellow-500',
-  danger: 'bg-orange-500',
-  critical: 'bg-red-500',
+  warning: 'bg-blue-400',
+  danger: 'bg-yellow-500',
+  critical: 'bg-orange-500',
 };
 
 const SkillSecurityReport: React.FC<SkillSecurityReportProps> = ({
@@ -64,7 +58,6 @@ const SkillSecurityReport: React.FC<SkillSecurityReportProps> = ({
   isLoading,
 }) => {
   const [expandedDimensions, setExpandedDimensions] = useState<Set<string>>(new Set());
-  const riskColors = RISK_COLORS[report.riskLevel] || RISK_COLORS.medium;
 
   const toggleDimension = (dim: string) => {
     setExpandedDimensions(prev => {
@@ -78,15 +71,16 @@ const SkillSecurityReport: React.FC<SkillSecurityReportProps> = ({
     });
   };
 
+  // Filter out info-level findings (not shown to user)
+  const visibleFindings = report.findings.filter(f => f.severity !== 'info');
+
   // Group findings by dimension
   const findingsByDimension = new Map<string, SecurityFinding[]>();
-  for (const finding of report.findings) {
+  for (const finding of visibleFindings) {
     const existing = findingsByDimension.get(finding.dimension) || [];
     existing.push(finding);
     findingsByDimension.set(finding.dimension, existing);
   }
-
-  const totalFindings = report.findings.length;
 
   return createPortal(
     <div
@@ -100,7 +94,7 @@ const SkillSecurityReport: React.FC<SkillSecurityReportProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b dark:border-claude-darkBorder border-claude-border">
           <div className="flex items-center gap-2.5">
-            <ShieldExclamationIcon className={`h-5 w-5 ${riskColors.text}`} />
+            <ShieldCheckIcon className="h-5 w-5 text-green-600 dark:text-green-400" />
             <h3 className="text-base font-semibold dark:text-claude-darkText text-claude-text">
               {i18nService.t('securityScanTitle')}
             </h3>
@@ -114,18 +108,10 @@ const SkillSecurityReport: React.FC<SkillSecurityReportProps> = ({
           </button>
         </div>
 
-        {/* Risk badge and summary - outside scroll area */}
+        {/* Summary - outside scroll area */}
         <div className="px-5 pt-4 pb-3">
-          <div className="flex items-center gap-3 mb-2">
-            <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold ${riskColors.bg} ${riskColors.text} border ${riskColors.border}`}>
-              {i18nService.t(`securityRisk_${report.riskLevel}`)}
-            </span>
-            <span className="text-sm dark:text-claude-darkTextSecondary text-claude-textSecondary">
-              &quot;{report.skillName}&quot;
-            </span>
-          </div>
           <p className="text-sm dark:text-claude-darkTextSecondary text-claude-textSecondary">
-            {i18nService.t('securityIssuesFound').replace('{count}', String(totalFindings))}
+            {i18nService.t('securityIssuesFound').replace('{name}', report.skillName)}
           </p>
         </div>
 
